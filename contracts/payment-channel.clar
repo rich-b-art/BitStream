@@ -233,3 +233,62 @@
     (ok true)
   )
 )
+
+;; Initiates a unilateral channel closure with dispute period
+(define-public (initiate-unilateral-close 
+  (channel-id (buff 32)) 
+  (participant-b principal)
+  (proposed-balance-a uint)
+  (proposed-balance-b uint)
+  (signature (buff 65))
+)
+  (let 
+    (
+      (channel (unwrap! 
+        (map-get? payment-channels {
+          channel-id: channel-id, 
+          participant-a: tx-sender, 
+          participant-b: participant-b
+        }) 
+        ERR-CHANNEL-NOT-FOUND
+      ))
+      (total-channel-funds (get total-deposited channel))
+      (message (concat 
+        (concat 
+          channel-id
+          (uint-to-buff proposed-balance-a)
+        )
+        (uint-to-buff proposed-balance-b)
+      ))
+    )
+    (asserts! (is-valid-channel-id channel-id) ERR-INVALID-INPUT)
+    (asserts! (is-valid-signature signature) ERR-INVALID-INPUT)
+    (asserts! (not (is-eq tx-sender participant-b)) ERR-INVALID-INPUT)
+    (asserts! (get is-open channel) ERR-CHANNEL-CLOSED)
+
+    (asserts! 
+      (verify-signature message signature tx-sender) 
+      ERR-INVALID-SIGNATURE
+    )
+
+    (asserts! 
+      (is-eq total-channel-funds (+ proposed-balance-a proposed-balance-b)) 
+      ERR-INSUFFICIENT-FUNDS
+    )
+
+    (map-set payment-channels 
+      {
+        channel-id: channel-id, 
+        participant-a: tx-sender, 
+        participant-b: participant-b
+      }
+      (merge channel {
+        dispute-deadline: (+ stacks-block-height u1008),
+        balance-a: proposed-balance-a,
+        balance-b: proposed-balance-b
+      })
+    )
+
+    (ok true)
+  )
+)
